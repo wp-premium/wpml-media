@@ -341,19 +341,17 @@ class WPML_Media
 
 	function batch_translate_media()
 	{
-		global $wpdb, $sitepress;
-
 		$response = array();
 
-		$limit = 10;
+		$active_languages = count( $this->sitepress->get_active_languages() );
+		$limit            = $this->get_batch_translate_limit( $active_languages );
 
-		$active_languages = count( $sitepress->get_active_languages() );
 		$sql              = "
             SELECT SQL_CALC_FOUND_ROWS p1.ID, p1.post_parent
-            FROM {$wpdb->prefix}icl_translations t
-            INNER JOIN {$wpdb->posts} p1
+            FROM {$this->wpdb->prefix}icl_translations t
+            INNER JOIN {$this->wpdb->posts} p1
             	ON t.element_id = p1.ID
-            LEFT JOIN {$wpdb->prefix}icl_translations tt
+            LEFT JOIN {$this->wpdb->prefix}icl_translations tt
             	ON t.trid = tt.trid
 			WHERE t.element_type = 'post_attachment'
 				AND t.source_language_code IS null
@@ -361,27 +359,37 @@ class WPML_Media
 			HAVING count(tt.language_code) < %d
             LIMIT %d
         ";
-		$sql_prepared = $wpdb->prepare($sql, array($active_languages, $limit));
-		$attachments      = $wpdb->get_results( $sql_prepared );
+		$sql_prepared = $this->wpdb->prepare($sql, array($active_languages, $limit));
+		$attachments      = $this->wpdb->get_results( $sql_prepared );
 
-		$found = $wpdb->get_var( "SELECT FOUND_ROWS()" );
+		$found = $this->wpdb->get_var( "SELECT FOUND_ROWS()" );
 
 		if ( $attachments ) {
 			foreach ( $attachments as $attachment ) {
-				$lang = $sitepress->get_element_language_details( $attachment->ID, 'post_attachment' );
+				$lang = $this->sitepress->get_element_language_details( $attachment->ID, 'post_attachment' );
 				$this->translate_attachments( $attachment->ID, $lang->language_code );
 			}
 		}
 
-		$response[ 'left' ] = max( $found - $limit, 0 );;
+		$response[ 'left' ] = max( $found - $limit, 0 );
 		if ( $response[ 'left' ] ) {
-			$response[ 'message' ] = sprintf( __( 'Translating media. %d left', 'wpml-media' ), $response[ 'left' ] );
+			$response[ 'message' ] = sprintf( esc_html__( 'Translating media. %d left', 'wpml-media' ), $response[ 'left' ] );
 		} else {
-			$response[ 'message' ] = sprintf( __( 'Translating media: done!', 'wpml-media' ), $response[ 'left' ] );
+			$response[ 'message' ] = sprintf( esc_html__( 'Translating media: done!', 'wpml-media' ), $response[ 'left' ] );
 		}
 
-		echo wp_json_encode( $response );
-		exit;
+		wp_send_json( $response );
+	}
+
+	/**
+	 * @param int $active_languages
+	 *
+	 * @return int
+	 */
+	private function get_batch_translate_limit( $active_languages ) {
+		$limit = $this->sitepress->get_wp_api()->constant( 'WPML_MEDIA_BATCH_LIMIT' );
+		$limit = ! $limit ? floor( 10 / max( $active_languages - 1, 1 ) ) : $limit;
+		return max( $limit, 1 );
 	}
 
 	function translate_attachments( $attachment_id, $source_language )
